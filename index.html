@@ -1,0 +1,768 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI 가위바위보</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=Noto+Sans+KR:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0f1226;
+    --panel: #1a1f3d;
+    --panel-2: #232a52;
+    --text: #f4f6ff;
+    --muted: #9aa3d0;
+    --student: #36d399;
+    --ai: #f87272;
+    --draw: #fbbd23;
+    --accent: #7c8cff;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: radial-gradient(1200px 700px at 50% -10%, #2a2f6b 0%, var(--bg) 60%);
+    color: var(--text);
+    font-family: "Noto Sans KR", system-ui, sans-serif;
+    overflow: hidden;
+    user-select: none;
+  }
+  .app {
+    height: 100vh;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    gap: 16px;
+    padding: 16px 24px;
+  }
+
+  /* ── 상단 점수판 ── */
+  header {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 16px;
+  }
+  .side { display: flex; align-items: center; gap: 14px; }
+  .side.ai { justify-content: flex-end; }
+  .side .name { font-family: "Black Han Sans", sans-serif; font-size: clamp(22px, 2.6vw, 38px); }
+  .side.student .name { color: var(--student); }
+  .side.ai .name { color: var(--ai); }
+  .pips { display: flex; gap: 8px; }
+  .pip {
+    width: clamp(22px, 2.4vw, 34px); aspect-ratio: 1; border-radius: 50%;
+    border: 3px solid currentColor; opacity: .35; transition: all .3s;
+  }
+  .side.student .pip { color: var(--student); }
+  .side.ai .pip { color: var(--ai); }
+  .pip.on { background: currentColor; opacity: 1; transform: scale(1.12); box-shadow: 0 0 18px currentColor; }
+  .title { text-align: center; }
+  .title h1 { margin: 0; font-family: "Black Han Sans", sans-serif; font-size: clamp(26px, 3.2vw, 48px); letter-spacing: 1px; }
+  .title .sub { color: var(--muted); font-size: clamp(13px, 1.2vw, 17px); margin-top: 2px; }
+  .score { font-family: "Black Han Sans", sans-serif; font-size: clamp(36px, 4.6vw, 70px); line-height: 1; }
+  .score .s { color: var(--student); } .score .a { color: var(--ai); } .score .c { color: var(--muted); margin: 0 10px; }
+
+  /* ── 본문: 카메라 vs AI ── */
+  main {
+    display: grid;
+    grid-template-columns: 1.35fr auto 1fr;
+    gap: 20px;
+    min-height: 0;
+  }
+  .card {
+    background: var(--panel);
+    border-radius: 24px;
+    position: relative;
+    overflow: hidden;
+    min-height: 0;
+    display: flex; flex-direction: column;
+    border: 3px solid transparent;
+    transition: border-color .3s, box-shadow .3s;
+  }
+  .card.win { border-color: var(--student); box-shadow: 0 0 40px rgba(54,211,153,.45); }
+  .card.lose { border-color: var(--ai); box-shadow: 0 0 40px rgba(248,114,114,.45); }
+  .card.ai-card.win { border-color: var(--ai); box-shadow: 0 0 40px rgba(248,114,114,.45); }
+  .card.draw { border-color: var(--draw); }
+  .card-label {
+    position: absolute; top: 14px; left: 16px; z-index: 3;
+    background: rgba(0,0,0,.45); backdrop-filter: blur(6px);
+    padding: 6px 14px; border-radius: 999px; font-weight: 700; font-size: clamp(14px, 1.3vw, 18px);
+  }
+  .cam-wrap { position: relative; flex: 1; min-height: 0; background: #000; }
+  video, #overlay {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: cover; transform: scaleX(-1);
+  }
+  .live-gesture {
+    position: absolute; right: 16px; bottom: 16px; z-index: 3;
+    background: rgba(0,0,0,.55); backdrop-filter: blur(6px);
+    padding: 8px 18px; border-radius: 16px;
+    font-size: clamp(18px, 2vw, 28px); font-weight: 900;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .live-gesture .emo { font-size: 1.5em; }
+  .debug {
+    position: absolute; top: 14px; right: 16px; z-index: 5; margin: 0; display: none;
+    background: rgba(0,0,0,.7); border-radius: 12px; padding: 10px 14px;
+    font: 700 15px/1.5 "Noto Sans KR", monospace; color: #e6e9ff;
+  }
+  .debug.on { display: block; }
+  .student-pick {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%) scale(.6);
+    z-index: 4; font-size: clamp(120px, 16vw, 260px);
+    opacity: 0; transition: all .35s cubic-bezier(.2,1.6,.4,1);
+    filter: drop-shadow(0 10px 30px rgba(0,0,0,.6));
+    pointer-events: none;
+  }
+  .student-pick.show { opacity: 1; transform: translate(-50%,-50%) scale(1); }
+
+  .vs {
+    align-self: center;
+    font-family: "Black Han Sans", sans-serif;
+    font-size: clamp(36px, 4vw, 64px);
+    color: var(--muted);
+  }
+
+  .ai-card { align-items: center; justify-content: center; background: linear-gradient(160deg, var(--panel-2), var(--panel)); }
+  .robot { font-size: clamp(48px, 5vw, 80px); position: absolute; top: 14px; right: 18px; }
+  .ai-hand {
+    font-size: clamp(140px, 18vw, 300px); line-height: 1;
+    filter: drop-shadow(0 10px 30px rgba(0,0,0,.5));
+    transform: scaleX(-1);
+  }
+  .ai-hand.shake { animation: shake .35s ease-in-out infinite; }
+  .ai-hand.pop { animation: pop .4s cubic-bezier(.2,1.6,.4,1); }
+  .ai-name { margin-top: 10px; font-size: clamp(22px, 2.4vw, 36px); font-weight: 900; min-height: 1.4em; }
+  @keyframes shake { 0%,100% { transform: scaleX(-1) translateY(0) rotate(0); } 50% { transform: scaleX(-1) translateY(-24px) rotate(-8deg); } }
+  @keyframes pop { 0% { transform: scaleX(-1) scale(.4); } 100% { transform: scaleX(-1) scale(1); } }
+
+  /* ── 하단 ── */
+  footer {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  }
+  .history { display: flex; gap: 10px; align-items: center; min-height: 54px; flex-wrap: wrap; }
+  .history .label { color: var(--muted); font-weight: 700; margin-right: 4px; }
+  .chip {
+    background: var(--panel); border-radius: 14px; padding: 6px 12px;
+    display: flex; align-items: center; gap: 6px; font-size: 22px;
+    border: 2px solid transparent;
+  }
+  .chip small { font-size: 13px; font-weight: 700; color: var(--muted); margin-right: 2px; }
+  .chip.w { border-color: var(--student); } .chip.l { border-color: var(--ai); } .chip.d { border-color: var(--draw); opacity: .7; }
+  .controls { display: flex; gap: 12px; }
+  button {
+    font-family: inherit; font-weight: 900; font-size: clamp(18px, 1.8vw, 26px);
+    border: 0; border-radius: 18px; padding: 14px 30px; cursor: pointer;
+    background: var(--accent); color: #fff;
+    box-shadow: 0 6px 0 #4d5ad1; transition: transform .08s, box-shadow .08s, opacity .2s;
+  }
+  button:active { transform: translateY(4px); box-shadow: 0 2px 0 #4d5ad1; }
+  button.ghost { background: var(--panel-2); box-shadow: 0 6px 0 #12173a; }
+  button:disabled { opacity: .4; cursor: default; }
+  kbd { font-size: .6em; opacity: .75; margin-left: 6px; font-family: inherit; }
+
+  /* ── 중앙 오버레이 (카운트다운 / 결과) ── */
+  .center {
+    position: fixed; inset: 0; z-index: 20; pointer-events: none;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+  }
+  .count {
+    font-family: "Black Han Sans", sans-serif;
+    font-size: clamp(90px, 13vw, 220px);
+    text-shadow: 0 8px 0 rgba(0,0,0,.35), 0 0 60px rgba(124,140,255,.8);
+    opacity: 0;
+  }
+  .count.go { animation: countPop .55s ease-out forwards; }
+  @keyframes countPop { 0% { opacity: 0; transform: scale(1.8); } 30% { opacity: 1; transform: scale(1); } 100% { opacity: .95; transform: scale(.95); } }
+
+  .banner {
+    font-family: "Black Han Sans", sans-serif;
+    font-size: clamp(70px, 10vw, 170px);
+    padding: 10px 60px; border-radius: 40px;
+    background: rgba(10,12,30,.78); backdrop-filter: blur(8px);
+    opacity: 0; transform: scale(.5); transition: all .35s cubic-bezier(.2,1.6,.4,1);
+  }
+  .banner.show { opacity: 1; transform: scale(1); }
+  .banner.w { color: var(--student); } .banner.l { color: var(--ai); } .banner.d { color: var(--draw); }
+  .banner-sub { margin-top: 14px; font-size: clamp(20px, 2.2vw, 34px); font-weight: 900; opacity: 0; transition: opacity .3s .15s; text-shadow: 0 3px 10px rgba(0,0,0,.8); }
+  .banner-sub.show { opacity: 1; }
+
+  /* ── 모달 (시작 / 최종 결과 / 오류) ── */
+  .modal {
+    position: fixed; inset: 0; z-index: 30;
+    background: rgba(8,10,25,.82); backdrop-filter: blur(10px);
+    display: none; align-items: center; justify-content: center; text-align: center;
+  }
+  .modal.open { display: flex; }
+  .modal-box { max-width: 900px; padding: 40px; }
+  .modal h2 { font-family: "Black Han Sans", sans-serif; font-size: clamp(48px, 7vw, 110px); margin: 0 0 10px; line-height: 1.1; }
+  .modal p { font-size: clamp(18px, 1.9vw, 28px); color: var(--muted); margin: 8px 0; line-height: 1.6; }
+  .modal .big-emo { font-size: clamp(80px, 10vw, 150px); }
+  .modal .final-score { font-family: "Black Han Sans", sans-serif; font-size: clamp(50px, 6vw, 90px); margin: 10px 0 24px; }
+  .modal .final-score .s { color: var(--student); } .modal .final-score .a { color: var(--ai); }
+  .modal button { margin-top: 24px; font-size: clamp(24px, 2.6vw, 38px); padding: 18px 50px; }
+  .rules { display: flex; gap: 28px; justify-content: center; margin: 22px 0 6px; }
+  .rules div { background: var(--panel); border-radius: 20px; padding: 14px 22px; font-size: clamp(16px, 1.6vw, 22px); font-weight: 700; }
+  .rules div span { display: block; font-size: clamp(48px, 5vw, 76px); }
+  .modal.intro { background: radial-gradient(1000px 600px at 50% 0%, #2f3680 0%, #0f1226 70%); }
+  .bounce { animation: bounce 1.4s ease-in-out infinite; }
+  @keyframes bounce { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-16px); } }
+  .modal-box.popup {
+    background: var(--panel); border-radius: 32px; padding: 34px 44px;
+    box-shadow: 0 30px 80px rgba(0,0,0,.6); border: 2px solid var(--panel-2);
+    animation: popIn .35s cubic-bezier(.2,1.4,.4,1);
+  }
+  @keyframes popIn { from { opacity: 0; transform: scale(.85); } to { opacity: 1; transform: scale(1); } }
+  .popup h3 { font-family: "Black Han Sans", sans-serif; font-size: clamp(34px, 4vw, 60px); margin: 0 0 10px; }
+  .rule-list { text-align: left; font-size: clamp(18px, 1.9vw, 27px); line-height: 1.7; margin: 0 auto; padding-left: 1.4em; max-width: 720px; }
+  .rule-list b { color: var(--draw); }
+  .popup .rules div { background: var(--panel-2); }
+  .status { margin-top: 16px; font-size: clamp(16px, 1.6vw, 22px); font-weight: 700; color: var(--draw); line-height: 1.6; white-space: pre-line; min-height: 1em; }
+  .status.err { color: var(--ai); }
+
+  #confetti { position: fixed; inset: 0; z-index: 40; pointer-events: none; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="side student">
+      <div class="name">🙋 학생</div>
+      <div class="pips" id="pipsS"><div class="pip"></div><div class="pip"></div><div class="pip"></div></div>
+    </div>
+    <div class="title">
+      <div class="score"><span class="s" id="scoreS">0</span><span class="c">:</span><span class="a" id="scoreA">0</span></div>
+      <div class="sub" id="roundInfo">5판 3선승제 · 먼저 3번 이기면 승리!</div>
+    </div>
+    <div class="side ai">
+      <div class="pips" id="pipsA"><div class="pip"></div><div class="pip"></div><div class="pip"></div></div>
+      <div class="name">AI 🤖</div>
+    </div>
+  </header>
+
+  <main>
+    <section class="card" id="camCard">
+      <div class="card-label">📷 내 손</div>
+      <div class="cam-wrap">
+        <video id="video" playsinline muted></video>
+        <canvas id="overlay"></canvas>
+        <div class="student-pick" id="studentPick"></div>
+        <pre class="debug" id="debug"></pre>
+        <div class="live-gesture"><span class="emo" id="liveEmo">❔</span><span id="liveText">손을 보여주세요</span></div>
+      </div>
+    </section>
+
+    <div class="vs">VS</div>
+
+    <section class="card ai-card" id="aiCard">
+      <div class="card-label">🤖 AI</div>
+      <div class="ai-hand" id="aiHand">✊</div>
+      <div class="ai-name" id="aiName">준비 완료!</div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="history" id="history"><span class="label">기록</span></div>
+    <div class="controls">
+      <button class="ghost" id="resetBtn">처음부터 <kbd>R</kbd></button>
+    </div>
+  </footer>
+</div>
+
+<div class="center">
+  <div class="count" id="count"></div>
+</div>
+<div class="center">
+  <div class="banner" id="banner"></div>
+  <div class="banner-sub" id="bannerSub"></div>
+</div>
+
+<!-- 첫 화면 -->
+<div class="modal open intro" id="introModal">
+  <div class="modal-box">
+    <div class="big-emo bounce">✊ ✌️ ✋</div>
+    <h2>AI 가위바위보</h2>
+    <p>인공지능과 가위바위보 한 판 승부!</p>
+    <button id="introBtn">시작하기 <kbd>Space</kbd></button>
+  </div>
+</div>
+
+<!-- 게임 규칙 안내 팝업 -->
+<div class="modal" id="rulesModal">
+  <div class="modal-box popup">
+    <h3>📋 게임 규칙</h3>
+    <ol class="rule-list">
+      <li>카메라에 <b>손을 크게</b> 보여주세요.</li>
+      <li><b>"가위! 바위! 보!"</b> 구호의 <b>"보!"</b>에 맞춰 손을 내요.</li>
+      <li>AI도 동시에 손을 내고, 바로 승패가 나와요.</li>
+      <li><b>5판 3선승제</b> — 먼저 <b>3번 이기면 승리!</b> (비긴 판은 다시)</li>
+    </ol>
+    <div class="rules">
+      <div><span>✊</span>바위 · 주먹</div>
+      <div><span>✌️</span>가위 · 두 손가락</div>
+      <div><span>✋</span>보 · 손바닥</div>
+    </div>
+    <div class="status" id="loadStatus"></div>
+    <button id="startBtn">게임 시작 <kbd>Space</kbd></button>
+  </div>
+</div>
+
+<!-- 최종 결과 -->
+<div class="modal" id="endModal">
+  <div class="modal-box">
+    <div class="big-emo" id="endEmo">🏆</div>
+    <h2 id="endTitle">학생 승리!</h2>
+    <div class="final-score"><span class="s" id="endS">3</span> : <span class="a" id="endA">0</span></div>
+    <p id="endMsg"></p>
+    <button id="againBtn">다음 친구 도전! <kbd>Space</kbd></button>
+  </div>
+</div>
+
+<canvas id="confetti"></canvas>
+
+<script type="module">
+import { FilesetResolver, GestureRecognizer } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
+
+const WIN_TARGET = 3;
+const HANDS = {
+  rock:     { emo: "✊", name: "바위" },
+  scissors: { emo: "✌️", name: "가위" },
+  paper:    { emo: "✋", name: "보" },
+};
+const BEATS = { rock: "scissors", scissors: "paper", paper: "rock" };
+const KEYS = Object.keys(HANDS);
+
+const $ = (id) => document.getElementById(id);
+const video = $("video"), overlay = $("overlay"), octx = overlay.getContext("2d");
+
+let landmarker = null;
+let liveGesture = null;        // 화면에 보여주는 현재 손 모양 (스무딩)
+let recent = [];               // 최근 프레임 판정 기록
+let sampling = null;           // "보!" 순간에 모으는 판정 배열
+let state = "loading";         // loading | ready | counting | result | over
+let score = { s: 0, a: 0 };
+let rounds = [];
+
+/* ───────── 소리 ───────── */
+let actx = null;
+function beep(freq, dur = 0.15, type = "sine", vol = 0.25, when = 0) {
+  if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+  const t = actx.currentTime + when;
+  const o = actx.createOscillator(), g = actx.createGain();
+  o.type = type; o.frequency.setValueAtTime(freq, t);
+  g.gain.setValueAtTime(vol, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  o.connect(g).connect(actx.destination);
+  o.start(t); o.stop(t + dur);
+}
+const sfx = {
+  tick: () => beep(660, 0.12, "square", 0.15),
+  go:   () => beep(990, 0.25, "square", 0.2),
+  win:  () => [523, 659, 784, 1047].forEach((f, i) => beep(f, 0.22, "triangle", 0.25, i * 0.1)),
+  lose: () => [392, 330, 262].forEach((f, i) => beep(f, 0.3, "sawtooth", 0.12, i * 0.15)),
+  draw: () => [440, 440].forEach((f, i) => beep(f, 0.12, "triangle", 0.2, i * 0.15)),
+  fanfare: () => [523, 659, 784, 1047, 784, 1047, 1319].forEach((f, i) => beep(f, 0.28, "triangle", 0.25, i * 0.12)),
+};
+
+/* ───────── 손 모양 판별 ─────────
+   손가락마다 두 가지로 "펴졌는지" 봅니다. 둘 중 하나라도 펴졌다고 하면 펴진 손가락으로 칩니다.
+   ① 3D 굽힘 각도: 마디가 꺾인 각도의 합 (손을 돌려도 값이 같음)
+   ② 2D 길이: 화면에서 손끝이 손목에서 얼마나 먼지 (손바닥 길이 대비)
+   그래도 애매하면 MediaPipe 제스처 모델(주먹/손바닥/V)의 결과를 빌립니다. */
+const MODEL_MAP = { Closed_Fist: "rock", Open_Palm: "paper", Victory: "scissors" };
+const MODEL_MIN_SCORE = 0.6;   // 제스처 모델을 믿을 최소 확신도
+const STRAIGHT = 90;           // ① 굽힘 합이 이보다 작으면 펴짐 (펴진 손가락 40~60°, 주먹 200° 이상)
+const REACH = 1.35;            // ② 손끝~손목 / 손바닥 길이가 이보다 크면 펴짐 (펴짐 1.8~2.2, 접힘 0.6~0.95)
+const THUMB_REACH = 1.4;       // 엄지 끝~손목 / 손바닥 길이 (접힘 0.9~1.0, 폄 1.6~1.7)
+
+const sub = (a, b) => ({ x: a.x - b.x, y: a.y - b.y, z: a.z - b.z });
+const len = (v) => Math.hypot(v.x, v.y, v.z);
+function angle(u, v) {
+  const c = (u.x * v.x + u.y * v.y + u.z * v.z) / ((len(u) * len(v)) || 1);
+  return Math.acos(Math.max(-1, Math.min(1, c))) * 180 / Math.PI;
+}
+// 손가락 하나가 얼마나 굽었는지: 손바닥뼈 → 첫째·둘째·셋째 마디에서 꺾인 각도의 합
+function curl(w, mcp) {
+  const p = [w[0], w[mcp], w[mcp + 1], w[mcp + 2], w[mcp + 3]];
+  let total = 0;
+  for (let i = 0; i < 3; i++) total += angle(sub(p[i + 1], p[i]), sub(p[i + 2], p[i + 1]));
+  return total;
+}
+
+function classify(res) {
+  const w = res.worldLandmarks[0];
+  const L = res.landmarks[0].map((p) => ({ x: p.x * video.videoWidth, y: p.y * video.videoHeight, z: 0 }));
+  const palm = len(sub(L[0], L[9])) || 1;
+  // 검지·중지·약지·새끼
+  const fingers = [5, 9, 13, 17].map((m) => {
+    const c = curl(w, m), r = len(sub(L[m + 3], L[0])) / palm;
+    return { curl: c, reach: r, ext: c < STRAIGHT || r > REACH };
+  });
+  const [I, M, R, P] = fingers;
+  const n = fingers.filter((f) => f.ext).length;
+  const thumbReach = len(sub(L[4], L[0])) / palm;
+  const thumbOut = thumbReach > THUMB_REACH;
+
+  let g = null;
+  if (I.ext && M.ext && !R.ext && !P.ext) g = "scissors";
+  else if (I.ext && !M.ext && !R.ext && !P.ext) g = "scissors";            // 검지(+엄지) 가위
+  else if (I.ext && M.ext &&                                                // 약지·새끼를 덜 접은 가위
+           (R.curl + P.curl) / 2 > Math.max(I.curl, M.curl) + 50 &&
+           (R.reach + P.reach) / 2 < Math.min(I.reach, M.reach) - 0.5) g = "scissors";
+  else if (n >= 3) g = "paper";
+  // 네 손가락이 다 접혔는데 엄지 쪽이 길게 뻗어 있으면 가위:
+  // 검지·중지를 겹쳐 옆으로 내밀면 인식기가 그 손가락을 엄지로 착각하는 경우가 있음 (엄지+검지 가위도 포함)
+  else if (n === 0 && thumbOut) g = "scissors";
+  else if (n === 0) g = "rock";
+
+  const top = res.gestures?.[0]?.[0];
+  const byModel = top && top.score >= MODEL_MIN_SCORE ? MODEL_MAP[top.categoryName] : undefined;
+  let source = "각도";
+  if (byModel === "scissors" && g !== "scissors") { g = "scissors"; source = "모델"; }   // 모델이 V를 확신하면 가위
+  else if (!g && byModel) { g = byModel; source = "모델"; }
+  // 손은 보이는데 모양이 애매하면(손가락 1~2개만 펴짐) 가위로 판정 — "손이 안 보여요"로 넘기지 않음
+  else if (!g) { g = "scissors"; source = "추정"; }
+  return { g, fingers, thumbReach, model: top, source };
+}
+
+function majority(arr) {
+  const c = {};
+  for (const g of arr) if (g) c[g] = (c[g] || 0) + 1;
+  let best = null, bestN = 0;
+  for (const k in c) if (c[k] > bestN) { best = k; bestN = c[k]; }
+  return best;
+}
+
+/* ───────── 카메라 + 인식 루프 ───────── */
+const CONNECTIONS = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],
+  [9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
+
+function drawHand(lm) {
+  const w = overlay.width, h = overlay.height;
+  octx.lineWidth = Math.max(3, w / 220);
+  octx.strokeStyle = "rgba(124,140,255,.9)";
+  octx.beginPath();
+  for (const [a, b] of CONNECTIONS) {
+    octx.moveTo(lm[a].x * w, lm[a].y * h);
+    octx.lineTo(lm[b].x * w, lm[b].y * h);
+  }
+  octx.stroke();
+  octx.fillStyle = "#36d399";
+  for (const p of lm) { octx.beginPath(); octx.arc(p.x * w, p.y * h, Math.max(4, w / 160), 0, Math.PI * 2); octx.fill(); }
+}
+
+// D 키: 인식 상태 보기 (선생님용 점검 화면)
+let debugOn = false;
+function showDebug(r) {
+  const el = $("debug");
+  if (!r) { el.textContent = "손 없음"; return; }
+  const names = ["검지", "중지", "약지", "새끼"];
+  el.textContent =
+    `판정: ${r.g ? HANDS[r.g].name : "모름"} (${r.source})\n` +
+    `모델: ${r.model ? `${r.model.categoryName} ${(r.model.score * 100).toFixed(0)}%` : "-"}\n` +
+    r.fingers.map((f, i) => `${names[i]} ${f.curl.toFixed(0)}° / ${f.reach.toFixed(2)} → ${f.ext ? "펴짐" : "접힘"}`).join("\n") +
+    `\n엄지 ${r.thumbReach.toFixed(2)} → ${r.thumbReach > THUMB_REACH ? "폄" : "접힘"}`;
+}
+
+let lastVideoTime = -1;
+function loop() {
+  if (landmarker && video.readyState >= 2 && video.currentTime !== lastVideoTime) {
+    lastVideoTime = video.currentTime;
+    if (overlay.width !== video.videoWidth) { overlay.width = video.videoWidth; overlay.height = video.videoHeight; }
+    const res = landmarker.recognizeForVideo(video, performance.now());
+    octx.clearRect(0, 0, overlay.width, overlay.height);
+    let g = null;
+    if (res.landmarks && res.landmarks.length) {
+      drawHand(res.landmarks[0]);
+      const r = classify(res);
+      g = r.g;
+      if (debugOn) showDebug(r);
+    } else if (debugOn) showDebug(null);
+    if (sampling) sampling.push({ g, t: performance.now() });
+    recent.push(g); if (recent.length > 6) recent.shift();
+    const shown = recent.filter(Boolean).length >= 3 ? majority(recent) : null;
+    if (shown !== liveGesture) {
+      liveGesture = shown;
+      $("liveEmo").textContent = shown ? HANDS[shown].emo : "❔";
+      $("liveText").textContent = shown ? HANDS[shown].name : "손을 보여주세요";
+    }
+  }
+  requestAnimationFrame(loop);
+}
+
+// AI 모델은 페이지가 열리자마자 미리 불러오고, 카메라는 "게임 시작"을 누를 때 켭니다.
+const modelReady = loadModel();
+
+const CAMERA_HELP = {
+  NotAllowedError: "카메라 권한이 막혀 있어요.\n주소창 왼쪽의 🔒(또는 카메라) 아이콘 → 카메라 '허용' → 다시 시도를 눌러 주세요.\n(윈도우 설정 → 개인 정보 → 카메라에서 앱의 카메라 사용도 켜져 있어야 해요)",
+  NotFoundError: "연결된 카메라를 찾을 수 없어요. 웹캠이 꽂혀 있는지 확인해 주세요.",
+  NotReadableError: "다른 프로그램(줌, 팀즈, 카메라 앱 등)이 카메라를 쓰고 있어요. 그 프로그램을 닫고 다시 시도해 주세요.",
+  NoMediaDevices: "이 주소에서는 카메라를 쓸 수 없어요.\n'게임 실행.bat'으로 열거나 http://localhost:8765 주소로 열어 주세요.",
+};
+
+async function startCamera() {
+  if (video.srcObject) return;
+  if (!navigator.mediaDevices?.getUserMedia) throw { name: "NoMediaDevices" };
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" }, audio: false,
+  });
+  video.srcObject = stream;
+  await video.play();
+}
+
+async function beginGame() {
+  const btn = $("startBtn"), status = $("loadStatus");
+  if (btn.disabled) return;
+  btn.disabled = true;
+  status.classList.remove("err");
+  status.textContent = "📷 카메라를 켜는 중… 브라우저가 물어보면 '허용'을 눌러 주세요.";
+  try {
+    await startCamera();
+  } catch (e) {
+    status.classList.add("err");
+    status.textContent = "❌ " + (CAMERA_HELP[e.name] || `카메라를 켤 수 없어요. (${e.name || e})`);
+    btn.innerHTML = "다시 시도 <kbd>Space</kbd>";
+    btn.disabled = false;
+    return;
+  }
+  status.textContent = "🤖 AI 준비 중…";
+  if (!(await modelReady)) {
+    status.classList.add("err");
+    status.textContent = "❌ AI 모델을 불러오지 못했어요. 인터넷 연결을 확인하고 새로고침(F5) 해 주세요.";
+    return;
+  }
+  $("rulesModal").classList.remove("open");
+  state = "ready";
+  loop();
+  resetGame();
+}
+
+async function loadModel() {
+  try {
+    const fileset = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");
+    const opts = (delegate) => ({
+      baseOptions: {
+        modelAssetPath: "https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task",
+        delegate,
+      },
+      runningMode: "VIDEO", numHands: 1,
+      minHandDetectionConfidence: 0.4, minHandPresenceConfidence: 0.4, minTrackingConfidence: 0.4,
+    });
+    try { landmarker = await GestureRecognizer.createFromOptions(fileset, opts("GPU")); }
+    catch { landmarker = await GestureRecognizer.createFromOptions(fileset, opts("CPU")); }
+  } catch (e) {
+    console.error(e);
+    return false;
+  }
+  return true;
+}
+
+/* ───────── 게임 진행 ───────── */
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function showCount(text) {
+  const el = $("count");
+  el.classList.remove("go"); void el.offsetWidth;
+  el.textContent = text; el.classList.add("go");
+}
+
+function showBanner(text, cls, sub = "") {
+  const b = $("banner"), s = $("bannerSub");
+  b.className = "banner " + cls; b.textContent = text; s.textContent = sub;
+  requestAnimationFrame(() => { b.classList.add("show"); s.classList.add("show"); });
+}
+function hideBanner() { $("banner").classList.remove("show"); $("bannerSub").classList.remove("show"); }
+
+function clearRoundVisuals() {
+  hideBanner();
+  $("count").classList.remove("go"); $("count").textContent = "";
+  $("studentPick").classList.remove("show");
+  $("camCard").className = "card";
+  $("aiCard").className = "card ai-card";
+}
+
+let aiShuffle = null;
+function startAiShuffle() {
+  const hand = $("aiHand");
+  hand.className = "ai-hand shake";
+  $("aiName").textContent = "고민 중…";
+  let i = 0;
+  aiShuffle = setInterval(() => { hand.textContent = HANDS[KEYS[i++ % 3]].emo; }, 110);
+}
+function stopAiShuffle(pick) {
+  clearInterval(aiShuffle);
+  const hand = $("aiHand");
+  hand.className = "ai-hand"; void hand.offsetWidth; hand.className = "ai-hand pop";
+  hand.textContent = HANDS[pick].emo;
+  $("aiName").textContent = HANDS[pick].name + "!";
+}
+
+// 한 판이 끝나면 잠깐 결과를 보여준 뒤 다음 판을 자동으로 시작
+const NEXT_ROUND_DELAY = 2600;
+let nextTimer = null;
+let gameId = 0;
+function scheduleNext(ms) {
+  clearTimeout(nextTimer);
+  nextTimer = setTimeout(playRound, ms);
+}
+
+async function playRound() {
+  if (state !== "ready" && state !== "result") return;
+  clearTimeout(nextTimer);
+  const id = gameId;
+  state = "counting";
+  clearRoundVisuals();
+  startAiShuffle();
+
+  for (const word of ["가위!", "바위!"]) { showCount(word); sfx.tick(); await wait(700); }
+  showCount("보!"); sfx.go();
+
+  // "보!" 후 0.9초 동안 손 모양을 모으되, 손을 바꾸는 중인 처음 0.3초(주먹 흔들던 잔상)는 빼고 결정
+  sampling = [];
+  const goAt = performance.now();
+  await wait(900);
+  const settled = sampling.filter((s) => s.t - goAt >= 300).map((s) => s.g);
+  const student = majority(settled) || majority(sampling.map((s) => s.g)) || majority(recent);
+  sampling = null;
+
+  const ai = KEYS[Math.floor(Math.random() * 3)];
+  stopAiShuffle(ai);
+  $("count").classList.remove("go"); $("count").textContent = "";
+
+  if (!student) {
+    showBanner("다시!", "d", "손을 찾지 못했어요 🙈 손목까지 화면에 들어오게, 카메라에서 조금 떨어져 주세요");
+    sfx.draw();
+    state = "result";
+    scheduleNext(NEXT_ROUND_DELAY);
+    return;
+  }
+
+  $("studentPick").textContent = HANDS[student].emo;
+  $("studentPick").classList.add("show");
+
+  let outcome;
+  if (student === ai) outcome = "d";
+  else if (BEATS[student] === ai) outcome = "w";
+  else outcome = "l";
+
+  rounds.push({ student, ai, outcome });
+  addHistory(student, ai, outcome);
+
+  if (outcome === "w") {
+    score.s++; sfx.win();
+    $("camCard").classList.add("win");
+    showBanner("이겼다!", "w", `${HANDS[student].name}가 ${HANDS[ai].name}를 이겼어요`);
+  } else if (outcome === "l") {
+    score.a++; sfx.lose();
+    $("aiCard").classList.add("win");
+    showBanner("졌다…", "l", `AI의 ${HANDS[ai].name}에게 졌어요`);
+  } else {
+    sfx.draw();
+    $("camCard").classList.add("draw"); $("aiCard").classList.add("draw");
+    showBanner("비겼다!", "d", "비긴 판은 다시 해요");
+  }
+  updateScore();
+
+  if (score.s >= WIN_TARGET || score.a >= WIN_TARGET) {
+    state = "over";
+    await wait(1800);
+    if (id === gameId) showEnd();
+  } else {
+    state = "result";
+    scheduleNext(NEXT_ROUND_DELAY);
+  }
+}
+
+function updateScore() {
+  $("scoreS").textContent = score.s;
+  $("scoreA").textContent = score.a;
+  [...$("pipsS").children].forEach((p, i) => p.classList.toggle("on", i < score.s));
+  [...$("pipsA").children].forEach((p, i) => p.classList.toggle("on", i < score.a));
+  const decided = rounds.filter((r) => r.outcome !== "d").length;
+  $("roundInfo").textContent = state === "ready" && decided === 0
+    ? "5판 3선승제 · 먼저 3번 이기면 승리!"
+    : `${Math.min(decided + 1, 5)}번째 판 · 먼저 3번 이기면 승리!`;
+}
+
+function addHistory(student, ai, outcome) {
+  const chip = document.createElement("div");
+  chip.className = "chip " + outcome;
+  chip.innerHTML = `<small>${rounds.length}</small>${HANDS[student].emo}<small>vs</small>${HANDS[ai].emo}`;
+  $("history").appendChild(chip);
+}
+
+function showEnd() {
+  hideBanner();
+  const won = score.s >= WIN_TARGET;
+  $("endEmo").textContent = won ? "🏆" : "🤖";
+  $("endTitle").textContent = won ? "학생 승리!" : "AI 승리!";
+  $("endTitle").style.color = won ? "var(--student)" : "var(--ai)";
+  $("endS").textContent = score.s; $("endA").textContent = score.a;
+  $("endMsg").textContent = won ? "축하해요! AI를 이겼어요 🎉" : "아쉬워요! 다음엔 꼭 이길 수 있어요 💪";
+  $("endModal").classList.add("open");
+  if (won) { sfx.fanfare(); confetti(); } else sfx.lose();
+}
+
+function resetGame() {
+  if (state === "counting" || state === "loading") return;
+  clearInterval(aiShuffle);
+  clearTimeout(nextTimer);
+  gameId++;
+  score = { s: 0, a: 0 }; rounds = [];
+  $("history").innerHTML = '<span class="label">기록</span>';
+  $("aiHand").className = "ai-hand"; $("aiHand").textContent = "✊";
+  $("aiName").textContent = "준비 완료!";
+  $("endModal").classList.remove("open");
+  clearRoundVisuals();
+  state = "ready";
+  updateScore();
+  // 새 게임은 "준비!"를 잠깐 보여준 뒤 바로 첫 판 시작
+  showCount("준비!");
+  scheduleNext(1600);
+}
+
+/* ───────── 꽃가루 ───────── */
+function confetti() {
+  const c = $("confetti"), ctx = c.getContext("2d");
+  c.width = innerWidth; c.height = innerHeight;
+  const colors = ["#36d399", "#7c8cff", "#fbbd23", "#f87272", "#ffffff"];
+  const parts = Array.from({ length: 220 }, () => ({
+    x: Math.random() * c.width, y: -20 - Math.random() * c.height * 0.5,
+    vx: (Math.random() - 0.5) * 4, vy: 2 + Math.random() * 4,
+    r: 5 + Math.random() * 7, rot: Math.random() * 6, vr: (Math.random() - 0.5) * 0.3,
+    color: colors[Math.floor(Math.random() * colors.length)],
+  }));
+  const end = performance.now() + 4500;
+  (function frame(t) {
+    ctx.clearRect(0, 0, c.width, c.height);
+    for (const p of parts) {
+      p.x += p.vx; p.y += p.vy; p.vy += 0.05; p.rot += p.vr;
+      ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+      ctx.fillStyle = p.color; ctx.fillRect(-p.r / 2, -p.r / 4, p.r, p.r / 2); ctx.restore();
+    }
+    if (t < end) requestAnimationFrame(frame); else ctx.clearRect(0, 0, c.width, c.height);
+  })(performance.now());
+}
+
+/* ───────── 이벤트 ───────── */
+function openRules() {
+  $("introModal").classList.remove("open");
+  $("rulesModal").classList.add("open");
+}
+$("introBtn").onclick = openRules;
+$("startBtn").onclick = beginGame;
+$("resetBtn").onclick = resetGame;
+$("againBtn").onclick = resetGame;
+addEventListener("keydown", (e) => {
+  if (e.code === "Space" || e.code === "Enter") {
+    e.preventDefault();
+    if ($("introModal").classList.contains("open")) openRules();
+    else if ($("rulesModal").classList.contains("open")) beginGame();
+    else if ($("endModal").classList.contains("open")) resetGame();
+    else playRound();
+  } else if (e.code === "KeyR") resetGame();
+  else if (e.code === "KeyD") { debugOn = !debugOn; $("debug").classList.toggle("on", debugOn); }
+  else if (e.code === "KeyF") document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+});
+</script>
+</body>
+</html>
